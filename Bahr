@@ -1,0 +1,145 @@
+// backend/server.js
+const express = require('express');
+const dotenv = require('dotenv');
+const mongoose = require('mongoose');
+const userRoutes = require('./routes/userRoutes');
+const gigRoutes = require('./routes/gigRoutes');
+
+dotenv.config();
+const app = express();
+app.use(express.json());
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+}).then(() => console.log('MongoDB connected'))
+  .catch(err => console.log(err));
+
+// Routes
+app.use('/api/users', userRoutes);
+app.use('/api/gigs', gigRoutes);
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+// backend/config/db.js
+const mongoose = require('mongoose');
+
+const connectDB = async () => {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log('MongoDB connected');
+  } catch (error) {
+    console.error('MongoDB connection error:', error);
+    process.exit(1);
+  }
+};
+
+module.exports = connectDB;
+// backend/models/User.js
+const mongoose = require('mongoose');
+
+const userSchema = new mongoose.Schema({
+  name: String,
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  isSeller: { type: Boolean, default: false },
+}, { timestamps: true });
+
+module.exports = mongoose.model('User', userSchema);
+// backend/models/Gig.js
+const mongoose = require('mongoose');
+
+const gigSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: { type: String, required: true },
+  price: { type: Number, required: true },
+  seller: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+}, { timestamps: true });
+
+module.exports = mongoose.model('Gig', gigSchema);
+// backend/controllers/userController.js
+const User = require('../models/User');
+const jwt = require('jsonwebtoken');
+
+exports.register = async (req, res) => {
+  const { name, email, password, isSeller } = req.body;
+  const user = new User({ name, email, password, isSeller });
+  await user.save();
+  res.status(201).json({ message: 'User registered', user });
+};
+
+exports.login = async (req, res) => {
+  const { email, password } = req.body;
+  const user = await User.findOne({ email });
+  if (user && user.password === password) {
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+    res.json({ token });
+  } else {
+    res.status(401).json({ message: 'Invalid credentials' });
+  }
+};
+// backend/routes/userRoutes.js
+const express = require('express');
+const { register, login } = require('../controllers/userController');
+const router = express.Router();
+
+router.post('/register', register);
+router.post('/login', login);
+
+module.exports = router;
+// backend/controllers/gigController.js
+const Gig = require('../models/Gig');
+
+exports.createGig = async (req, res) => {
+  const { title, description, price } = req.body;
+  const gig = new Gig({
+    title,
+    description,
+    price,
+    seller: req.user.id,
+  });
+  await gig.save();
+  res.status(201).json({ gig });
+};
+
+exports.getGigs = async (req, res) => {
+  const gigs = await Gig.find().populate('seller', 'name');
+  res.json(gigs);
+};
+// backend/routes/gigRoutes.js
+const express = require('express');
+const { createGig, getGigs } = require('../controllers/gigController');
+const { protect } = require('../middleware/authMiddleware');
+const router = express.Router();
+
+router.post('/', protect, createGig);
+router.get('/', getGigs);
+
+module.exports = router;
+// backend/middleware/authMiddleware.js
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+
+exports.protect = async (req, res, next) => {
+  let token = req.headers.authorization?.split(' ')[1];
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      req.user = await User.findById(decoded.id).select('-password');
+      next();
+    } catch (error) {
+      res.status(401).json({ message: 'Not authorized' });
+    }
+  } else {
+    res.status(401).json({ message: 'No token provided' });
+  }
+};
+npx create-react-app frontend
+cd frontend
+npm install axios react-router-dom
